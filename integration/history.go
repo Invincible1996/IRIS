@@ -21,15 +21,15 @@ var (
 	sessionHistory   []string
 	sessionHistoryMu sync.Mutex
 
-	historyCache  []string
-	idMapCache    map[string]int
+	historyCache   []string
+	idMapCache     map[string]int
 	sourceMapCache map[string]string
-	searcherCache *fuzzy.Searcher
-	mu            sync.Mutex
-	lastModTime   int64
+	searcherCache  *fuzzy.Searcher
+	mu             sync.Mutex
+	lastModTime    int64
 
-	atuinCmds    []string
-	atuinLastMod int64
+	atuinCmds     []string
+	atuinLastMod  int64
 	lastAtuinMode int = -1
 )
 
@@ -39,6 +39,9 @@ func RecordSessionCommand(cmd string) {
 		return
 	}
 	cmd = sanitizeUTF8(cmd)
+	if cmd == "" {
+		return
+	}
 	mu.Lock()
 	defer mu.Unlock()
 
@@ -65,18 +68,10 @@ func init() {
 }
 
 func sanitizeUTF8(s string) string {
-	if utf8.ValidString(s) {
+	if utf8.ValidString(s) && !strings.ContainsRune(s, utf8.RuneError) {
 		return s
 	}
-	var result strings.Builder
-	for _, r := range s {
-		if r == utf8.RuneError {
-			result.WriteRune('�')
-		} else {
-			result.WriteRune(r)
-		}
-	}
-	return result.String()
+	return ""
 }
 
 func loadAtuinCmds() ([]string, error) {
@@ -225,7 +220,9 @@ func SearchHistory(query string, aliases map[string]string) ([]HistResult, error
 					cmd = strings.TrimSpace(cmd)
 					if cmd != "" {
 						cmd = sanitizeUTF8(cmd)
-						allCmds = append(allCmds, cmd)
+						if cmd != "" {
+							allCmds = append(allCmds, cmd)
+						}
 					}
 				}
 				if scanner.Err() != nil {
@@ -293,8 +290,8 @@ func SearchHistory(query string, aliases map[string]string) ([]HistResult, error
 		for i := range limit {
 			cmd := historyCache[i]
 			results = append(results, HistResult{
-				ID:  idMapCache[cmd],
-				Cmd: cmd,
+				ID:     idMapCache[cmd],
+				Cmd:    cmd,
 				Source: sourceMapCache[cmd],
 			})
 		}

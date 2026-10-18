@@ -155,8 +155,65 @@ func TestLookup_AliasFileGenerator(t *testing.T) {
 		t.Errorf("expected file suggestions for alias 'nv ' -> 'nvim', got none")
 	}
 	for _, r := range results {
-		if !strings.HasPrefix(r.Cmd, "nvim ") {
-			t.Errorf("expected suggestion to start with 'nvim ', got %q", r.Cmd)
+		if !strings.HasPrefix(r.Cmd, "nv ") {
+			t.Errorf("expected suggestion mapped back to typed form 'nv ', got %q", r.Cmd)
+		}
+	}
+}
+
+func TestLookup_ShellAliasMapsToTypedReader(t *testing.T) {
+	ResetRegistry()
+	cwd := GetCWD()
+	t.Cleanup(func() { SetCWD(cwd) })
+
+	tmp := t.TempDir()
+	for _, name := range []string{"Documents", "Downloads"} {
+		if err := os.Mkdir(filepath.Join(tmp, name), 0o755); err != nil {
+			t.Fatalf("create dir: %v", err)
+		}
+	}
+	SetCWD(tmp)
+
+	Register(&Spec{
+		Name:      "fakeeza",
+		Generator: FileGenerator(),
+		Options: []Option{
+			{Name: "-l", Description: "long format"},
+		},
+	})
+	ShellAliases = map[string]string{"myls": "fakeeza --icons"}
+
+	results := Lookup("myls ")
+	if len(results) == 0 {
+		t.Fatal("expected results for aliased 'myls '")
+	}
+	for _, r := range results {
+		if strings.Contains(r.Cmd, "fakeeza") {
+			t.Errorf("expected no expanded form in suggestions, got %q", r.Cmd)
+		}
+		if !strings.HasPrefix(r.Cmd, "myls ") {
+			t.Errorf("expected suggestion in typed form 'myls ...', got %q", r.Cmd)
+		}
+	}
+
+	hasDir := false
+	for _, r := range results {
+		if r.Cmd == "myls Documents/" {
+			hasDir = true
+			break
+		}
+	}
+	if !hasDir {
+		t.Errorf("expected directory suggestion 'myls Documents/', got %v", results)
+	}
+
+	partial := Lookup("myls Do")
+	if len(partial) == 0 {
+		t.Fatal("expected results for partial 'myls Do'")
+	}
+	for _, r := range partial {
+		if r.Cmd != "myls Documents/" && r.Cmd != "myls Downloads/" {
+			t.Errorf("unexpected partial suggestion %q", r.Cmd)
 		}
 	}
 }

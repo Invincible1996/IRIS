@@ -290,6 +290,7 @@ func init() {
 				Options: []spec.Option{
 					{Name: "-u", Description: "set upstream"},
 					{Name: "--force", Description: "force push"},
+					{Name: "--force-with-lease", Description: "force push if the remote ref is unchanged"},
 					{Name: "--tags", Description: "push tags"},
 				},
 			},

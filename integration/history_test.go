@@ -50,3 +50,15 @@ func TestRecordSessionCommand_MergeAndDeduplicate(t *testing.T) {
 		t.Errorf("expected results[2] to be 'git status', got %q", results[2].Cmd)
 	}
 }
+
+func TestSanitizeUTF8DropsInvalidHistoryEntries(t *testing.T) {
+	if got := sanitizeUTF8("有效中文"); got != "有效中文" {
+		t.Fatalf("valid UTF-8 was changed to %q", got)
+	}
+	if got := sanitizeUTF8(string([]byte{'a', 0xff, 'b'})); got != "" {
+		t.Fatalf("invalid UTF-8 should be dropped, got %q", got)
+	}
+	if got := sanitizeUTF8("中文�乱码"); got != "" {
+		t.Fatalf("replacement-character history should be dropped, got %q", got)
+	}
+}

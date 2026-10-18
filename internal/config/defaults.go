@@ -12,7 +12,6 @@ func DefaultConfig() *Config {
 			ShellLogin:        false,
 			Mode:              "last",
 			Debug:             false,
-			ExpandAlias:       true,
 			AutoExecute:       false,
 			CobraProbeEnabled: true,
 		},

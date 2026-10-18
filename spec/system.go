@@ -27,11 +27,12 @@ func scanPath() {
 			continue
 		}
 		for _, f := range files {
-			if !f.IsDir() {
-				info, err := f.Info()
-				if err == nil && info.Mode()&0111 != 0 {
-					pathCmds[f.Name()] = true
-				}
+			if f.IsDir() || filepath.Ext(f.Name()) != "" {
+				continue
+			}
+			info, err := f.Info()
+			if err == nil && info.Mode()&0111 != 0 {
+				pathCmds[f.Name()] = true
 			}
 		}
 	}

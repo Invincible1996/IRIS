@@ -134,3 +134,48 @@ func TestNullTokenSplit(t *testing.T) {
 		})
 	}
 }
+
+func TestIsCompletedCommandEcho(t *testing.T) {
+	tests := []struct {
+		name      string
+		query     string
+		completed string
+		want      bool
+	}{
+		{name: "exact command", query: "dart run build", completed: "dart run build", want: true},
+		{name: "trailing whitespace", query: " dart run build ", completed: "dart run build", want: true},
+		{name: "new command", query: "dart run test", completed: "dart run build", want: false},
+		{name: "empty completed command", query: "dart run build", completed: "", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isCompletedCommandEcho(tt.query, tt.completed); got != tt.want {
+				t.Fatalf("isCompletedCommandEcho(%q, %q) = %v, want %v", tt.query, tt.completed, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestModeForHistoryNavigation(t *testing.T) {
+	tests := []struct {
+		name  string
+		dir   string
+		query string
+		mode  string
+		want  string
+	}{
+		{name: "empty query up uses history", dir: "up", query: "", mode: "spec", want: "history"},
+		{name: "whitespace query up uses history", dir: "up", query: "  ", mode: "spec", want: "history"},
+		{name: "down keeps current mode", dir: "down", query: "", mode: "spec", want: "spec"},
+		{name: "nonempty query keeps current mode", dir: "up", query: "git", mode: "spec", want: "spec"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := modeForHistoryNavigation(tt.dir, tt.query, tt.mode); got != tt.want {
+				t.Fatalf("modeForHistoryNavigation(%q, %q, %q) = %q, want %q", tt.dir, tt.query, tt.mode, got, tt.want)
+			}
+		})
+	}
+}

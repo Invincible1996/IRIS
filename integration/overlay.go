@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	maxItems = 6
+	MaxVisibleItems = 6
 )
 
 func ComputeCursorCol(data []byte) int {
@@ -576,7 +576,7 @@ func (o *Overlay) draw() string {
 
 	s.WriteString(ansi.SaveCursor)
 
-	windowSize := min(len(o.Items), maxItems)
+	windowSize := min(len(o.Items), MaxVisibleItems)
 
 	scrolloffUp := 1
 	if windowSize <= 3 {
@@ -799,7 +799,7 @@ func (o *Overlay) Clear() string {
 
 	var s strings.Builder
 	s.WriteString(ansi.ResetModeAutoWrap)
-	clearLinesBelow(&s, maxItems+2)
+	clearLinesBelow(&s, MaxVisibleItems+2)
 	s.WriteString(ansi.SetModeAutoWrap)
 	return s.String()
 }
@@ -829,7 +829,7 @@ func (o *Overlay) HideMenu(query string) string {
 		o.LastGhostLen = 0
 	}
 
-	clearLinesBelow(&s, maxItems+2)
+	clearLinesBelow(&s, MaxVisibleItems+2)
 	s.WriteString(ansi.SetModeAutoWrap)
 	return s.String()
 }
@@ -859,7 +859,7 @@ func (o *Overlay) ClearAndDisable() string {
 		o.LastGhostLen = 0
 	}
 
-	clearLinesBelow(&s, maxItems+2)
+	clearLinesBelow(&s, MaxVisibleItems+2)
 	s.WriteString(ansi.SetModeAutoWrap)
 	return s.String()
 }

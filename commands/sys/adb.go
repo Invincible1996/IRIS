@@ -56,9 +56,9 @@ func init() {
 			{Name: "pair", Description: "Pair with a device for secure TCP/IP communication"},
 			{Name: "ppp", Description: "Run PPP over USB"},
 			{Name: "emu", Description: "Run emulator console command"},
-			{Name: "install", Description: "Push a single package to the device and install it"},
-			{Name: "install-multiple", Description: "Push multiple APKs to the device for a single package and install them"},
-			{Name: "install-multi-package", Description: "Push one or more packages to the device and install them atomically"},
+			{Name: "install", Description: "Push a single package to the device and install it", Generator: spec.FileGenerator(".apk")},
+			{Name: "install-multiple", Description: "Push multiple APKs to the device for a single package and install them", Generator: spec.FileGenerator(".apk")},
+			{Name: "install-multi-package", Description: "Push one or more packages to the device and install them atomically", Generator: spec.FileGenerator(".apk")},
 		},
 		Options: []spec.Option{
 			{Name: "-l", Description: "Forward-lock the app"},

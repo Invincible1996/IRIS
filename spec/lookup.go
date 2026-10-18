@@ -78,6 +78,12 @@ func Lookup(input string) []Suggestion {
 				aliasTokens = aliasTokens[:len(aliasTokens)-1]
 			}
 			tokens = append(aliasTokens, tokens[1:]...)
+			if len(aliasTokens) > 0 {
+				// results are built in the alias target's form; map them back to
+				// the typed name so scoring, ghost text and insertion match the user's input
+				expandedPrefix = strings.Join(aliasTokens, " ")
+				originalPrefix = originalTokens[0]
+			}
 		}
 	}
 
@@ -371,7 +377,7 @@ func Lookup(input string) []Suggestion {
 		}
 	}
 
-	if isAliasExpanded && expandedPrefix != "" && originalPrefix != "" {
+	if expandedPrefix != "" && originalPrefix != "" {
 		for i := range results {
 			if strings.HasPrefix(results[i].Cmd, expandedPrefix) {
 				results[i].Cmd = originalPrefix + strings.TrimPrefix(results[i].Cmd, expandedPrefix)

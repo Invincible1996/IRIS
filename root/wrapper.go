@@ -82,6 +82,13 @@ func saveMode(mode string) {
 	_ = config.SaveState(state)
 }
 
+func modeForHistoryNavigation(dir, query, mode string) string {
+	if dir == "up" && strings.TrimSpace(query) == "" {
+		return "history"
+	}
+	return mode
+}
+
 func shellArgs(login bool) []string {
 	if login {
 		return []string{"--login"}
@@ -150,6 +157,11 @@ func nullTokenSplit(data []byte, atEOF bool) (advance int, token []byte, err err
 	return 0, nil, nil
 }
 
+func isCompletedCommandEcho(query, completed string) bool {
+	completed = strings.TrimSpace(completed)
+	return completed != "" && strings.TrimSpace(query) == completed
+}
+
 // runWrapper sets up the pty environment, launches the shell,
 // and manages the main input loop to provide real-time suggestions
 // it handles raw terminal mode to intercept keystrokes and
@@ -159,10 +171,15 @@ func runWrapper() {
 
 	var naiveBuffer string
 	var lastSubmittedCommand string
+	var lastCompletedCommand string
 	cursorOffset := 0
 	var bufferMu sync.Mutex
 	var userNavigated atomic.Bool
-	var renderMenuNow func()
+	var suppressCompletedCommandEcho atomic.Bool
+	var renderMenuNow func(uint64)
+	var renderTimer *time.Timer
+	var renderMu sync.Mutex
+	var renderEpoch atomic.Uint64
 	var intercepted bool
 
 	r, w, err := os.Pipe() // pipe for ipc communication from shell to iris
@@ -331,6 +348,16 @@ func runWrapper() {
 	}()
 
 	overlay := integration.NewOverlay()
+	clearOverlay := func() {
+		renderMu.Lock()
+		renderEpoch.Add(1)
+		if renderTimer != nil {
+			renderTimer.Stop()
+			renderTimer = nil
+		}
+		renderMu.Unlock()
+		writeStdout([]byte(overlay.ClearAndDisable()))
+	}
 
 	// start background update check (async)
 	pendingUpdate = startBackgroundUpdateCheck()
@@ -442,7 +469,7 @@ func runWrapper() {
 			bufQuery := naiveBuffer
 			bufferMu.Unlock()
 
-			results := MergeResults(bufQuery, currentMode)
+			results := MergeResults(bufQuery, modeForHistoryNavigation(dir, bufQuery, currentMode))
 			if len(results) > 0 {
 				limit := min(len(results), 100)
 				var historyList []spec.Suggestion
@@ -555,11 +582,13 @@ func runWrapper() {
 
 			if query == "IRIS_CMD_START" {
 				isCommandActive.Store(true)
+				suppressCompletedCommandEcho.Store(false)
 				bufferMu.Lock()
 				naiveBuffer = ""
+				lastCompletedCommand = ""
 				cursorOffset = 0
 				bufferMu.Unlock()
-				writeStdout([]byte(overlay.ClearAndDisable()))
+				clearOverlay()
 				SetCurrentAISuggestion(nil)
 				continue
 			}
@@ -576,7 +605,10 @@ func runWrapper() {
 				bufferMu.Lock()
 				cmdToRecord := lastSubmittedCommand
 				lastSubmittedCommand = ""
+				lastCompletedCommand = strings.TrimSpace(cmdToRecord)
 				bufferMu.Unlock()
+				suppressCompletedCommandEcho.Store(lastCompletedCommand != "")
+				clearOverlay()
 				if cmdToRecord != "" {
 					cwd := spec.GetCWD()
 					prevSkeleton, prevCwd := getPrevRecordedInfo()
@@ -622,7 +654,26 @@ func runWrapper() {
 				continue
 			}
 
+			if isCommandActive.Load() {
+				bufferMu.Lock()
+				submitted := lastSubmittedCommand
+				bufferMu.Unlock()
+				if isCompletedCommandEcho(query, submitted) {
+					writeStdout([]byte(overlay.ClearAndDisable()))
+					continue
+				}
+			}
 			isCommandActive.Store(false)
+			if suppressCompletedCommandEcho.Load() {
+				bufferMu.Lock()
+				completed := lastCompletedCommand
+				bufferMu.Unlock()
+				if isCompletedCommandEcho(query, completed) {
+					suppressCompletedCommandEcho.Store(false)
+					continue
+				}
+				suppressCompletedCommandEcho.Store(false)
+			}
 
 			if overlay.GetUserNavigated() {
 				continue
@@ -665,13 +716,16 @@ func runWrapper() {
 
 	writeStdout([]byte(overlay.Clear()))
 
-	var renderTimer *time.Timer
-	var renderMu sync.Mutex
 	var aiTimer *time.Timer
 	var aiCancel context.CancelFunc
 	var aiMu sync.Mutex
 
-	renderMenuNow = func() {
+	renderMenuNow = func(epoch uint64) {
+		renderMu.Lock()
+		defer renderMu.Unlock()
+		if epoch != renderEpoch.Load() {
+			return
+		}
 		if isExecuting() {
 			return
 		}
@@ -800,11 +854,12 @@ func runWrapper() {
 		if renderTimer != nil {
 			return
 		}
+		epoch := renderEpoch.Load()
 		renderTimer = time.AfterFunc(20*time.Millisecond, func() {
 			renderMu.Lock()
 			renderTimer = nil
 			renderMu.Unlock()
-			renderMenuNow()
+			renderMenuNow(epoch)
 		})
 	})
 
@@ -816,7 +871,6 @@ func runWrapper() {
 	// for most cases, I just handle the already have terminal shortcuts
 	// for some shortcuts like tab, enter, shift tab, ctrl r,
 	// they have a little bit different behavior to match our tool
-	inBracketedPaste := false
 	for {
 		inputSlice := make([]byte, 128)
 		n, err := stdinFile.Read(inputSlice)
@@ -826,7 +880,6 @@ func runWrapper() {
 
 		if n > 0 {
 			if isExecuting() {
-				inBracketedPaste = false
 				_, _ = ptmx.Write(inputSlice[:n])
 				continue
 			}
@@ -941,14 +994,8 @@ func runWrapper() {
 						}
 					}
 
-					writeStdout([]byte(overlay.ClearAndDisable()))
+					clearOverlay()
 					SetCurrentAISuggestion(nil)
-					renderMu.Lock()
-					if renderTimer != nil {
-						renderTimer.Stop()
-						renderTimer = nil
-					}
-					renderMu.Unlock()
 
 					var cmdToSubmit string
 					if shouldAutoExecute {
@@ -1014,8 +1061,6 @@ func runWrapper() {
 					if i+5 < n && inputSlice[i+1] == '[' && inputSlice[i+2] == '2' && inputSlice[i+3] == '0' {
 						if (inputSlice[i+4] == '0' || inputSlice[i+4] == '1') && inputSlice[i+5] == '~' {
 							intercepted = true
-							inBracketedPaste = inputSlice[i+4] == '0'
-							logger.Debugf("Intercepted bracketed paste event inPaste=%v", inBracketedPaste)
 							_, _ = ptmx.Write(inputSlice[i : i+6])
 							i += 5
 							continue
@@ -1258,27 +1303,6 @@ func runWrapper() {
 					default:
 						// track normal printable characters in the buffer for matching
 						if b >= 32 && b <= 126 {
-							// expand alias on space, but only when typing manually (not pasting)
-							// and only if expand-alias configuration is enabled
-							bufferMu.Lock()
-							isSpaceAlias := config.Get().Core.ExpandAlias && !inBracketedPaste && b == ' ' && naiveBuffer != "" && !strings.Contains(naiveBuffer, " ")
-							var target string
-							var ok bool
-							if isSpaceAlias {
-								target, ok = spec.GetAlias(naiveBuffer)
-							}
-							bufferMu.Unlock()
-
-							if isSpaceAlias && ok {
-								// clear the current alias and replace it with the full command
-								_, _ = ptmx.Write(append([]byte{0x15}, target+" "...))
-								bufferMu.Lock()
-								naiveBuffer = target + " "
-								cursorOffset = 0
-								bufferMu.Unlock()
-								shouldOverlayDraw = true
-								continue
-							}
 							bufferMu.Lock()
 							if cursorOffset == 0 {
 								naiveBuffer += string(b)

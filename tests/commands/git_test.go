@@ -132,6 +132,23 @@ func TestGitSuggestions(t *testing.T) {
 		}
 	})
 
+	t.Run("push force prefix suggests force options", func(t *testing.T) {
+		res := spec.Lookup("git push --for")
+		foundForce := false
+		foundForceWithLease := false
+		for _, r := range res {
+			switch r.Cmd {
+			case "git push --force":
+				foundForce = true
+			case "git push --force-with-lease":
+				foundForceWithLease = true
+			}
+		}
+		if !foundForce || !foundForceWithLease {
+			t.Fatalf("git push --force should suggest both force options, got: %v", res)
+		}
+	})
+
 	t.Run("push -u origin suggests branches", func(t *testing.T) {
 		res := spec.Lookup("git push -u origin ")
 		found := false

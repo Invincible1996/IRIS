@@ -241,9 +241,6 @@ mode = "last"
 # enable debug logging
 debug = false
 
-# automatically expand aliases on space
-expand-alias = true
-
 # automatically execute command after accepting suggestion
 auto-execute = false
 

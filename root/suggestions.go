@@ -15,6 +15,19 @@ import (
 	"github.com/versenilvis/iris/spec"
 )
 
+var searchHistory = integration.SearchHistory
+
+const maxHybridHistoryItems = 3
+
+func historyMatchesPrefix(command, query string) bool {
+	command = strings.TrimSpace(command)
+	query = strings.TrimLeft(query, " \t")
+	if command == "" || query == "" {
+		return false
+	}
+	return strings.HasPrefix(strings.ToLower(command), strings.ToLower(query))
+}
+
 // MergeResults collects and dedupes suggestions for a query and mode
 func MergeResults(query string, mode string) []spec.Suggestion {
 	maxSugg := config.Get().UI.MaxSuggestions
@@ -46,33 +59,56 @@ func MergeResults(query string, mode string) []spec.Suggestion {
 	// always call lookup to scan aliases and get spec suggestions
 	logger.Debugf("Merge Calling Lookup for '%s'", query)
 	cmdResults := spec.Lookup(query)
+	cmdResultCommands := make(map[string]bool, len(cmdResults))
+	for _, result := range cmdResults {
+		cmdResultCommands[strings.TrimSpace(result.Cmd)] = true
+	}
 
-	if mode == "history" {
+	tokens := spec.Tokenize(query)
+	hybridHistoryQuery := mode == "spec" && normalizedQuery != ""
+	if mode == "history" || hybridHistoryQuery {
 		aliases := spec.GetAliasesCopy()
-		histResults, _ := integration.SearchHistory(query, aliases)
+		histResults, _ := searchHistory(query, aliases)
+		hybridHistoryCount := 0
 
 		// scale confidence based on recency (index in histResults) so the most recent commands stay on top
 		baseConf := 75
 		for i, h := range histResults {
-			conf := max(baseConf-(i*2), 60)
-			
+			if mode == "spec" {
+				if !historyMatchesPrefix(h.Cmd, query) {
+					continue
+				}
+				if cmdResultCommands[strings.TrimSpace(h.Cmd)] {
+					continue
+				}
+				if hybridHistoryCount >= maxHybridHistoryItems {
+					continue
+				}
+				hybridHistoryCount++
+			}
+
+			conf := 70
+			if mode == "history" {
+				conf = max(baseConf-(i*2), 60)
+			}
+
 			icon := "history"
 			if h.Source == "atuin" {
 				icon = "atuin"
 			}
-			
+			source := h.Source
+			if mode != "history" {
+				source = "history"
+			}
+
 			addSuggestion(spec.Suggestion{
 				Cmd:        h.Cmd,
 				Desc:       h.Source,
 				Icon:       icon,
-				Source:     h.Source,
+				Source:     source,
 				Confidence: conf,
 			})
 		}
-	}
-
-	for _, s := range cmdResults {
-		addSuggestion(s)
 	}
 
 	if mode == "history" && normalizedQuery == "" {
@@ -80,6 +116,10 @@ func MergeResults(query string, mode string) []spec.Suggestion {
 			return deduped[:maxSugg]
 		}
 		return deduped
+	}
+
+	for _, s := range cmdResults {
+		addSuggestion(s)
 	}
 
 	injectAISuggestion(&deduped, seen, normalizedQuery)
@@ -92,12 +132,11 @@ func MergeResults(query string, mode string) []spec.Suggestion {
 		finalResults = deduped
 	} else {
 		cwd := spec.GetCWD()
-		tokens := spec.Tokenize(query)
 		rootCmd := ""
 		if len(tokens) > 0 {
 			rootCmd = tokens[0]
 		}
-		
+
 		ctxTimeout, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 		defer cancel()
 		store, _ := scoring.GetFrecencyStore()
